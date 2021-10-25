@@ -393,8 +393,8 @@ We confirmed if the species assigned are distributed in Indonesia by verificatio
 ```
 
 
-#### →I got back to the denoise step because I have realized some taxa that was suppose to be present in the dataset was not assigned. 
-#I decided to try using -cluster_otus, which cluster with 97%. Instead of Unoise3
+#### →I got back to the denoise step because I have realized some taxa present in the dataset were not assigned. 
+#I decided to try using -cluster_otus, which cluster with 97%. Instead of Unoise3 as they might have been treated as biologically incorrect sequences.  
 
 ```{bash, eval = FALSE}
 
