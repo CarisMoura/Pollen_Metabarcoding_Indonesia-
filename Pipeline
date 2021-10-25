@@ -1,0 +1,455 @@
+---
+title: "Metabarcoding of Pollen"
+author: "Carina C M Moura"
+date: "4/30/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+### →**Create list with samples names of files** 
+
+```{bash, eval = FALSE}
+      ls *_L001_R1_001.fastq.gz | cut -f1 -d "_" > samples
+
+```
+
+
+
+### →**Rename files (remove well numbers S[1-9])**
+
+```{bash, eval = FALSE}
+      for f in *.fastq.gz; do newname=$( echo $f | sed -r 's/_S[0-9]{1}_/_/' );
+      mv $f $newname; done
+```
+
+
+
+#### →**Remove primers using cutadapt**
+
+``` {bash, eval = FALSE}
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      cutadapt -a ^fwd_primer...rev_cpt_rev_primer
+          -A ^rev_primer...rev_cpt_fwd_primer \
+          -m 100 -M 300 --discard-untrimmed \
+          -o ${sample}_R1_trimmedITS.fastq -p ${sample}_R2_trimmedITS.fastq \
+          ${sample}_L001_R1_001.fastq.gz ${sample}_L001_R2_001.fastq.gz \
+          >> cutadapt_primer_trimming_ITS.txt 2>&1
+      done
+```
+
+
+##### **Download cutadapt**
+
+```{bash, eval = FALSE}
+      sudo apt-get install -y cutadapt
+```
+
+
+##### **Remove _rbcL_ primers using cutadapt**
+
+```{bash, eval = FALSE} 
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      cutadapt -a ^TGGCAGCATTYCGAGTAACTC...CGYGGTGGACTTGATTTTAC \
+          -A ^GTAAAATCAAGTCCACCRCG...GAGTTACTCGRAATGCTGCCA \
+          -m 100 -M 300 --discard-untrimmed \
+          -o ${sample}_R1_trimmedrbcl.fastq -p ${sample}_R2_trimmedrbcl.fastq \
+          ${sample}_L001_R1_001.fastq.gz ${sample}_L001_R2_001.fastq.gz \
+          >> cutadapt_primer_trimming_rbcL.txt 2>&1
+      done
+
+```
+##### **Make directory and transfer rbcL sequences to new folder**
+```{bash, eval = FALSE}
+      mkdir rbcL
+      mv *_trimmedrbcl.fastq ./rbcL
+```
+##### **Remove _ITS2_ primers using cutadapt**
+
+```{bash, eval = FALSE} 
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      cutadapt -a ^ATGCGATACTTGGTGTGAAT...ATTGTAGTCTGGAGAAGCGTC \
+          -A ^GACGCTTCTCCAGACTACAAT...GAGTTACTCGRAATGCTGCCA \
+          -m 100 -M 300 --discard-untrimmed \
+          -o ${sample}_R1_trimmedITS.fastq -p ${sample}_R2_trimmedITS.fastq \
+          ${sample}_L001_R1_001.fastq.gz ${sample}_L001_R2_001.fastq.gz \
+          >> cutadapt_primer_trimming_ITS.txt 2>&1
+      done
+
+```
+
+##### **Make directory and transfer ITS2 sequences to new folder**
+```{bash, eval = FALSE}
+      mkdir ITS
+      mv *_trimmedITS.fastq ./ITS
+```
+
+#### →**Quality check using fastqc**
+
+##### **Install fastqc**
+```{bash, eval = FALSE}
+     sudo apt-get install -y fastqc
+```
+ 
+##### **Load fastqc and check data quality of sequences**
+```{bash, eval = FALSE}
+     fastqc
+```
+ 
+#### →**Merge reads using USEARCH**
+
+##### **Download USEARCH**
+
+```{bash, eval = FALSE}
+      sudo apt-get install -y Usearch11
+```
+
+####**Processing rbcL sequences**
+
+##### **Merge forward and reverse _rbcL_ reads using USEARCH**
+
+```{bash, eval = FALSE}
+      chmod a+x usearch11 
+      ./usearch11
+      for sample in $(cat samples)
+      do
+      echo "On sample-: $sample"
+      ./usearch11 -fastq_mergepairs ${sample}_R1_trimmedrbcl.fastq -reverse
+      ${sample}_R2_trimmedrbcl.fastq -fastqout ${sample}_mergedrbcl.fastq
+     -fastq_truncqual 3 -fastq_minmergelen 20 
+      done
+      
+```
+
+##### **Load fastqc and check data quality of joined sequences again**
+```{bash, eval = FALSE}
+      fastqc
+```
+ 
+#### →**Q20 Filtering of _rbcL_ reads using USEARCH**
+
+```{bash, eval = FALSE}
+      chmod a+x usearch11 
+      ./usearch11
+      
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      ./usearch11 -fastq_filter ${sample}_mergedrncl.fastq -fastq_truncqual 19
+      -fastq_minlen 100 -fastqout ${sample}_filteredrbcl.fastq
+      done
+```
+#### →**Summarize number of reads and length of sequences for _rbcL_**
+
+##### **Summarize number of forward and reverse pair-end reads for _rbcL_**
+
+```{bash, eval = FALSE}
+
+      grep M00868 -c *_R1_trimmedrbcl.fastq  > count_fwdreads_rbcl.txt
+      
+      grep M00868 -c *_R2_trimmedrbcl.fastq  > count_revreads_rbcl.txt
+
+```
+
+##### **Summarize number of joined forward and reverse pair-end reads for _rbcL_**
+
+```{bash, eval = FALSE}
+
+      grep M00868 -c *_mergedrncl.fastq  > countreads_rbcl.txt
+
+```
+
+
+##### **Summarize lengths of joint pair-end reads for _rbcL_**
+
+```{bash, eval = FALSE}
+
+  cat *_filteredrbcl.fastq | awk '{if(NR%4==2) print length($1)}' > input.readslength.txt
+  
+  sort input.readslength.txt | uniq -c > input1.readslength.txt
+
+```
+
+##### **Estimate mean lengths of joint pair-end reads for _rbcL_**
+
+```{r, eval = FALSE}
+  rbclseqlen <- read.delim(file.choose())
+  mean(rbclseqlen[["length"]])
+```
+#### →**Dereplicate sequences, rename samples and count number of repeated sequences**
+
+```{bash, eval = FALSE}
+
+    ./usearch11 -fastx_uniques F05A_filteredrbcl.fastq -fastaout
+    F05A_uniques.fasta -sizeout -relabel F05A
+```
+
+#### →**Save all samples in one file**
+
+```{bash, eval = FALSE}
+
+    cat *_uniques.fasta > rbclpollen.fasta
+   
+```
+
+#### →**Remove singletons**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -sortbysize rbclpollen.fasta -fastaout rbclpollen_sorted.fasta -minsize 2 
+ 
+```
+
+#### →**Denoise sequences using unoise 3**
+#Unoise 3 is more restrict than -cluster_otus, which cluster with 97%. Unoise clusters with higher similarity
+
+```{bash, eval = FALSE}
+
+  ./usearch11 -unoise3  rbclpollen_sorted.fasta -zotus zotusrbcl.fa -tabbedout rbclunoise3.txt
+ 
+```
+
+#### →**Taxonomic assignments**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -usearch_global zotusrbcl.fa -db rbcL_all_Jan2016.utax.fa -id 0.95 -blast6out zotus_rbcl_tax.txt -strand both -maxaccepts 1 -maxrejects 256
+ 
+```
+
+#### →**Extract subset of sequences - use only sequences correctly assigned**
+```{bash, eval = FALSE}
+seqkit grep -n -f validZOTU.txt zotusrbcl.fa > rbclzotus1.fa 
+```
+
+#### →**Create ZOTU tables**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -otutab rbclpollen_sorted.fasta -otus rbclzotus1.fa -otutabout rbclpollen_sorted1.txt -mapout maprbcl1.txt
+ 
+```
+
+#### →**Double check results using BLAST NCBI**
+
+```{bash, eval = FALSE}
+
+blastn - to recheck the taxonomic assignments
+```
+
+#### →**Taxonomic assignments distribution**
+
+```{bash, eval = FALSE}
+
+We confirmed if the species assigned are distributed in Indonesia by verification in the literature.
+```
+
+
+####**Processing ITS data**
+
+##### **Merge forward and reverse _ITS_ reads using USEARCH**
+
+```{bash, eval = FALSE}
+      chmod a+x usearch11 
+      ./usearch11
+      
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      ./usearch11 -fastq_mergepairs ${sample}_R1_trimmedITS.fastq -reverse ${sample}_R2_trimmedITS.fastq -fastqout ${sample}_mergedITS.fastq -fastq_truncqual 3 -fastq_minmergelen 30  
+      done
+      
+      
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      ./usearch11 -fastq_mergepairs ${sample}_R1_trimmedITS.fastq -reverse ${sample}_R2_trimmedITS.fastq -fastqout ${sample}_mergedITS.fastq -fastq_minmergelen 20  
+      done
+      
+```
+
+#### →**Q20 Filtering of _ITS_ reads using USEARCH**
+
+```{bash, eval = FALSE}
+      chmod a+x usearch11 
+      ./usearch11
+      
+      for sample in $(cat samples)
+      do
+      echo "On sample: $sample"
+      ./usearch11 -fastq_filter ${sample}_mergedITS.fastq -fastq_truncqual 19 -fastq_minlen 100 -fastqout ${sample}_filteredITS.fastq
+      done
+```
+#### →**Summarize number of reads and length of sequences for _ITS_**
+
+##### **Summarize number of forward and reverse pair-end reads for _ITS_**
+
+```{bash, eval = FALSE}
+
+      grep M00868 -c *_R1_trimmedITS.fastq  > count_fwdreads_ITS1.txt
+      
+      grep M00868 -c *_R2_trimmedITS.fastq  > count_revreads_ITS.txt
+
+```
+
+##### **Summarize number of joined forward and reverse pair-end reads for _ITS_**
+
+```{bash, eval = FALSE}
+
+      grep M00868 -c *_mergedITS.fastq  > countreads_ITS.txt
+
+```
+
+
+##### **Summarize lengths of joint pair-end reads for _ITS_**
+
+```{bash, eval = FALSE}
+
+  cat *_filteredITS.fastq | awk '{if(NR%4==2) print length($1)}' > input.readslength.txt
+  
+  sort input.readslength.txt | uniq -c > input1.readslength.txt
+
+```
+
+
+##### **Estimate mean lengths of joint pair-end reads for _ITS_**
+
+```{r, eval = FALSE}
+  ITSseqlen <- read.delim(file.choose())
+  mean(ITSseqlen[["length"]])
+```
+
+#### →**Dereplicate ITS sequences, rename samples and count number of repeated sequences**
+
+```{bash, eval = FALSE}
+
+    ./usearch11 -fastx_uniques F05A_filteredITS.fastq -fastaout F05A_uniques.fasta -sizeout -relabel F05A_
+```
+
+#### →**Save all samples in one file**
+
+```{bash, eval = FALSE}
+
+    cat *_uniques.fasta > ITSpollen.fasta
+   
+```
+
+#### →**Remove singletons**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -sortbysize ITSpollen.fasta -fastaout ITSpollen_sorted.fasta -minsize 2 
+ 
+```
+
+#### →**Denoise sequences using unoise 3**
+#Unoise 3 is more restrict than -cluste_otus, which cluster with 97%. Unoise clusters with higher similarity
+
+```{bash, eval = FALSE}
+
+  ./usearch11 -unoise3  ITSpollen_sorted.fasta -zotus zotusITS.fa -tabbedout ITSunoise3.txt
+ 
+```
+
+#### →**Taxonomic assignments**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -usearch_global zotusITS.fa -db viridiplantae_all_2014.rdp.fa -id 0.95 -blast6out zotus_ITS_tax.txt -strand both -maxaccepts 1 -maxrejects 256
+ 
+```
+
+#### →**Extract subset of sequences - use only sequences correctly assigned**
+```{bash, eval = FALSE}
+seqkit grep -n -f validZOTUits.txt zotusITS.fa > ITSzotus1.fa 
+```
+
+#### →**Create ZOTU tables**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -otutab ITSpollen_sorted.fasta -otus ITSzotus1.fa -otutabout ITSpollen_sorted1.txt -mapout mapITS1.txt
+ 
+```
+
+#### →**Double check results using BLAST NCBI**
+
+```{bash, eval = FALSE}
+
+blastn - to recheck the taxonomic assignments
+```
+
+#### →**Taxonomic assignments distribution**
+
+```{bash, eval = FALSE}
+
+We confirmed if the species assigned are distributed in Indonesia by verification in the literature.
+```
+
+
+#### →I got back to the denoise step because I have realized some taxa that was suppose to be present in the dataset was not assigned. 
+#I decided to try using -cluster_otus, which cluster with 97%. Instead of Unoise3
+
+```{bash, eval = FALSE}
+
+  ./usearch11 -cluster_otus  ITSpollen_sorted.fasta -otus zotusITS.fa -relabel ZOTU_
+ 
+```
+
+
+#### →**Taxonomic assignments**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -usearch_global zotusITS.fa -db ITS.SINTAX_format.fas -id 0.95 -blast6out zotus_ITS_tax.txt -strand both -maxaccepts 1 -maxrejects 256
+```
+## →**Extract subset of sequences - use only sequences correctly assigned**
+
+```{bash, eval = FALSE}
+seqkit grep -n -f validZOTUits zotusITS.fa > ITSzotus1new.fa 
+```
+  
+  
+#### →**Create ZOTU tables**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -otutab ITSpollen_sorted.fasta -otus ITSzotus1new.fa -otutabout ITSpollen_sorted1new.txt -mapout mapITS1new.txt
+ 
+```
+
+
+#### Same for rbcL
+#I decided to try using -cluster_otus, which cluster with 97%. Instead of Unoise3
+```{bash, eval = FALSE}
+
+  ./usearch11 -cluster_otus  rbclpollen_sorted.fasta -otus zotusrbclnew.fa -relabel ZOTU_
+ 
+```
+
+#### →**Taxonomic assignments**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -usearch_global zotusrbclnew.fa -db rbcL_all_Jan2016.utax.fa -id 0.95 -blast6out zotus_rbcl_tax.txt -strand both -maxaccepts 1 -maxrejects 256
+```
+
+## →**Extract subset of sequences - use only sequences correctly assigned**
+
+```{bash, eval = FALSE}
+seqkit grep -n -f validzoturbcl.txt zotusrbclnew.fa > rbclZOTUS1new.fa 
+```
+  
+#### →**Create ZOTU tables**
+
+```{bash, eval = FALSE}
+
+ ./usearch11 -otutab rbclpollen_sorted.fasta -otus rbclZOTUS1new.fa -otutabout rbclpollen_sorted1new.txt -mapout maprbcl1new.txt
+ 
+```
